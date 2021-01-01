@@ -94,6 +94,9 @@ void Exploring::Update( Mouse& context ) {
     context.BestStep();
 
     if( context.AtGoal() )
+        context.RemoveGoal();
+
+    if( context.Goals().empty() )
         context.ChangeState( Mapping::Instance() );
 }
 
