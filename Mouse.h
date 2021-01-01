@@ -1,8 +1,14 @@
+#include <array>
+#include <stack>
+#include <vector>
+
 #include "Direction.h"
+#include "Move.h"
 
 #pragma once
 
-struct Node;
+class Coordinate;
+class Node;
 class Map;
 class IState;
 
@@ -16,9 +22,25 @@ class Mouse {
 
         void ChangeState( IState& state );
 
+        void AddGoal( Coordinate c );
+        void RemoveGoal();
+        void ClearGoals();
+        const std::vector< Coordinate >& Goals() const;
+
+        bool AtGoal() const;
+        void ResetFlood();
+        void CalcFlood();
+
+        void BestStep();
         void TurnLeft();
         void TurnRight();
         void MoveForward();
+        void MoveDirection( DirectionEnum d );
+
+        void CheckWalls();
+        void AddWallLeft();
+        void AddWallRight();
+        void AddWallFront();
 
         Map* GetMap() const;
 
@@ -27,22 +49,14 @@ class Mouse {
         DirectionEnum Front() const;
         DirectionEnum Back() const;
 
-        Node* LeftNode( const Node* n ) const;
-        Node* RightNode( const Node* n ) const;
-        Node* FrontNode( const Node* n ) const;
-        Node* BackNode( const Node* n ) const;
-
-        void AddLeft();
-        void AddRight();
-        void AddFront();
-
-        bool Visited( DirectionEnum d ) const;
+	private:
+        typedef std::array< unsigned int, 16 > Row;
 
     private:
-        Node* Neighbor( const Node* n, DirectionEnum d ) const;
-
-	private:
         DirectionEnum _heading;
         Map* _map;
+        std::vector< Coordinate > _goals;
+        std::array< Row, 16 > _flood;
         IState* _state;
+        std::stack< MoveEnum > _moves;
 };

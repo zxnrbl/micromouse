@@ -10,6 +10,9 @@ enum StateEnum {
     STATE_IDLE,
     STATE_INITIALIZING,
     STATE_EXPLORING,
+    STATE_RETURNING,
+    STATE_MAPPING,
+    STATE_SPEEDING,
     STATE_COMPLETE
 };
 
@@ -17,8 +20,8 @@ class IState {
     public:
         virtual StateEnum State() const = 0;
 
-        virtual void Enter();
-        virtual void Exit();
+        virtual void Enter( Mouse& context );
+        virtual void Exit( Mouse& context );
 
         virtual void PreUpdate( Mouse& context );
         virtual void Update( Mouse& context ) = 0;
@@ -54,8 +57,9 @@ class Exploring : public IState {
         static IState& Instance();
         virtual StateEnum State() const;
 
-        virtual void Enter();
+        virtual void Enter( Mouse& context );
         virtual void Update( Mouse& context );
+        virtual void Exit( Mouse& context );
 
     private:
         Exploring();
@@ -63,4 +67,57 @@ class Exploring : public IState {
 
     private:
         std::queue< MoveEnum > _queue;
+};
+
+class Returning : public IState {
+    public:
+        static IState& Instance();
+        virtual StateEnum State() const;
+
+        virtual void Enter( Mouse& context );
+        virtual void Update( Mouse& context );
+        virtual void Exit( Mouse& context );
+
+    private:
+        Returning();
+        ~Returning();
+};
+
+class Mapping : public IState {
+    public:
+        static IState& Instance();
+        virtual StateEnum State() const;
+
+        virtual void Update( Mouse& context );
+        virtual void Exit( Mouse& context );
+
+    private:
+        Mapping();
+        ~Mapping();
+};
+
+class Speeding : public IState {
+    public:
+        static IState& Instance();
+        virtual StateEnum State() const;
+
+        virtual void Enter( Mouse& context );
+        virtual void Update( Mouse& context );
+        virtual void Exit( Mouse& context );
+
+    private:
+        Speeding();
+        ~Speeding();
+};
+
+class Complete : public IState {
+    public:
+        static IState& Instance();
+        virtual StateEnum State() const;
+
+        virtual void Update( Mouse& context );
+
+    private:
+        Complete();
+        ~Complete();
 };

@@ -1,4 +1,8 @@
+#include <algorithm>
 #include <cassert>
+#include <iostream>
+#include <set>
+#include <string>
 
 #include "API.h"
 #include "Map.h"
@@ -18,6 +22,7 @@ void Mouse::Initialize() {
     _heading = DIR_NORTH;
     _map = new Map();
     _map->Initialize();
+    ResetFlood();
     ChangeState( Idle::Instance() );
 }
 
@@ -28,24 +33,252 @@ void Mouse::Update() {
 }
 
 void Mouse::ChangeState( IState& state ) {
-    _state->Exit();
+    _state->Exit( *this );
     _state = &state;
-    _state->Enter();
+    _state->Enter( *this );
+}
+
+void Mouse::AddGoal( Coordinate c ) {
+    _goals.push_back( c );
+    _flood.at( c.Y() ).at( c.X() ) = 0;
+    API::setText( c.X(), c.Y(), std::to_string( 0 ) );
+    API::setColor( c.X(), c.Y(), 'g' );
+}
+
+void Mouse::RemoveGoal() {
+    const Coordinate& c( _map->CurrentPosition().XY() );
+    for( auto goal = _goals.begin(); goal != _goals.end(); ++goal ) {
+        if( *goal == c ) {
+            _goals.erase( goal );
+            break;
+        }
+    }
+}
+
+void Mouse::ClearGoals() {
+    _goals.clear();
+    assert( _goals.size() == 0 );
+}
+
+const std::vector< Coordinate >& Mouse::Goals() const {
+    return _goals;
+}
+
+bool Mouse::AtGoal() const {
+    const Coordinate& c( _map->CurrentPosition().XY() );
+    return _flood.at( c.Y() ).at( c.X() ) == 0;
+}
+
+void Mouse::ResetFlood() {
+    for( auto row = _flood.begin(); row != _flood.end(); ++row ) {
+        for( auto n = row->begin(); n != row->end(); ++n )
+            *n = 255;
+    }
+
+    for( auto goal = _goals.begin(); goal != _goals.end(); ++goal ) {
+        _flood.at( goal->Y() ).at( goal->X() ) = 0;
+        API::setText( goal->X(), goal->Y(), std::to_string( 0 ) );
+    }
+}
+
+void Mouse::CalcFlood() {
+    std::queue< Coordinate > q;
+    std::vector< Coordinate > visited;
+
+    for( auto goal = _goals.begin(); goal != _goals.end(); ++goal )
+        q.push( *goal );
+
+    while( !q.empty() ) {
+        const Coordinate& c( q.front() );
+        const Node& n( _map->At( c ) );
+        const unsigned int d( _flood.at( c.Y() ).at( c.X() ) + 1 );
+
+        if( !n.North() ) {
+            const Coordinate north( c.X(), c.Y() + 1 );
+            assert( north.X() < 16 && north.Y() < 16 );
+
+            if( ( std::find( visited.begin(), visited.end(), north ) == visited.end() ) && _flood.at( north.Y() ).at( north.X() ) > d ) {
+                _flood.at( north.Y() ).at( north.X() ) = d;
+                API::setText( north.X(), north.Y(), std::to_string( d ) );
+
+                q.push( north );
+            }
+        }
+
+        if( !n.East() ) {
+            const Coordinate east( c.X() + 1, c.Y() );
+            assert( east.X() < 16 && east.Y() < 16 );
+
+            if( ( std::find( visited.begin(), visited.end(), east ) == visited.end() ) && _flood.at( east.Y() ).at( east.X() ) > d ) {
+                _flood.at( east.Y() ).at( east.X() ) = d;
+                API::setText( east.X(), east.Y(), std::to_string( d ) );
+
+                q.push( east );
+            }
+        }
+
+        if( !n.South() ) {
+            const Coordinate south( c.X(), c.Y() - 1 );
+            assert( south.X() < 16 && south.Y() < 16 );
+
+            if( ( std::find( visited.begin(), visited.end(), south ) == visited.end() ) && _flood.at( south.Y() ).at( south.X() ) > d ) {
+                _flood.at( south.Y() ).at( south.X() ) = d;
+                API::setText( south.X(), south.Y(), std::to_string( d ) );
+
+                q.push( south );
+            }
+        }
+
+        if( !n.West() ) {
+            const Coordinate west( c.X() - 1, c.Y() );
+            assert( west.X() < 16 && west.Y() < 16 );
+
+            if( ( std::find( visited.begin(), visited.end(), west ) == visited.end() ) && _flood.at( west.Y() ).at( west.X() ) > d ) {
+                _flood.at( west.Y() ).at( west.X() ) = d;
+                API::setText( west.X(), west.Y(), std::to_string( d ) );
+
+                q.push( west );
+            }
+        }
+
+        visited.push_back( c );
+        q.pop();
+    }
+}
+
+void Mouse::BestStep() {
+    const Node& n( _map->CurrentPosition() );
+    const Coordinate& c( n.XY() );
+    const unsigned int north = n.North() ? 255 : _flood.at( c.Y() + 1 ).at( c.X() );
+    const unsigned int east = n.East() ? 255 : _flood.at( c.Y() ).at( c.X() + 1 );
+    const unsigned int south = n.South() ? 255 : _flood.at( c.Y() - 1 ).at( c.X() );
+    const unsigned int west = n.West() ? 255 : _flood.at( c.Y() ).at( c.X() - 1 );
+
+    std::set< unsigned int > s;
+    s.insert( north );
+    s.insert( east );
+    s.insert( south );
+    s.insert( west );
+
+    // TODO: Optimize to minimize turning
+    switch( _heading ) {
+        case DIR_NORTH:
+            if( north <= *s.begin() )
+                MoveDirection( DIR_NORTH );
+            else if( west <= *s.begin() )
+                MoveDirection( DIR_WEST );
+            else if( east <= *s.begin() )
+                MoveDirection( DIR_EAST );
+            else if( south <= *s.begin() )
+                MoveDirection( DIR_SOUTH );
+
+            break;
+        case DIR_EAST:
+            if( east <= *s.begin() )
+                MoveDirection( DIR_EAST );
+            else if( north <= *s.begin() )
+                MoveDirection( DIR_NORTH );
+            else if( south <= *s.begin() )
+                MoveDirection( DIR_SOUTH );
+            else if( west <= *s.begin() )
+                MoveDirection( DIR_WEST );
+
+            break;
+        case DIR_SOUTH:
+            if( south <= *s.begin() )
+                MoveDirection( DIR_SOUTH );
+            else if( east <= *s.begin() )
+                MoveDirection( DIR_EAST );
+            else if( west <= *s.begin() )
+                MoveDirection( DIR_WEST );
+            else if( north <= *s.begin() )
+                MoveDirection( DIR_NORTH );
+
+            break;
+        case DIR_WEST:
+            if( west <= *s.begin() )
+                MoveDirection( DIR_WEST );
+            else if( south <= *s.begin() )
+                MoveDirection( DIR_SOUTH );
+            else if( north <= *s.begin() )
+                MoveDirection( DIR_NORTH );
+            else if( east <= *s.begin() )
+                MoveDirection( DIR_EAST );
+
+            break;
+        default:
+            assert( false );
+            break;
+
+    }
 }
 
 void Mouse::TurnLeft() {
+    std::clog << "Mouse::TurnLeft" << std::endl;
     _heading = Left();
     API::turnLeft();
+    _moves.push( MOVE_TURN_LEFT );
 }
 
 void Mouse::TurnRight() {
+    std::clog << "Mouse::TurnRight" << std::endl;
     _heading = Right();
     API::turnRight();
+    _moves.push( MOVE_TURN_RIGHT );
 }
 
 void Mouse::MoveForward() {
+    std::clog << "Mouse::MoveForward" << std::endl;
     _map->Move( _heading );
     API::moveForward();
+    _moves.push( MOVE_FORWARD );
+
+    const Coordinate& c( _map->CurrentPosition().XY() );
+    API::setColor( c.X(), c.Y(), 'c' );
+}
+
+void Mouse::MoveDirection( DirectionEnum d ) {
+    if( _heading == d )
+        MoveForward();
+    else if( Left() == d ) {
+        TurnLeft();
+        MoveForward();
+    }
+    else if( Right() == d ) {
+        TurnRight();
+        MoveForward();
+    }
+    else {
+        TurnLeft();
+        TurnLeft();
+        MoveForward();
+    }
+}
+
+void Mouse::CheckWalls() {
+    if( API::wallLeft() )
+        AddWallLeft();
+
+    if( API::wallRight() )
+        AddWallRight();
+
+    if( API::wallFront() )
+        AddWallFront();
+}
+
+void Mouse::AddWallLeft() {
+    const DirectionEnum left = Left();
+    _map->SetWall( left );
+}
+
+void Mouse::AddWallRight() {
+    const DirectionEnum right = Right();
+    _map->SetWall( right );
+}
+
+void Mouse::AddWallFront() {
+    const DirectionEnum front = Front();
+    _map->SetWall( front );
 }
 
 Map* Mouse::GetMap() const {
@@ -89,149 +322,5 @@ DirectionEnum Mouse::Back() const {
         default:
             assert( false );
             return DIR_NORTH;
-    }
-}
-
-Node* Mouse::Neighbor( const Node* n, DirectionEnum d ) const {
-    switch( d ) {
-        case DIR_NORTH: return n->North();
-        case DIR_EAST: return n->East();
-        case DIR_SOUTH: return n->South();
-        case DIR_WEST: return n->West();
-        default:
-            assert( false );
-            return nullptr;
-    }
-}
-
-Node* Mouse::LeftNode( const Node* n ) const {
-    return Neighbor( n, Left() );
-}
-
-Node* Mouse::RightNode( const Node* n ) const {
-    return Neighbor( n, Right() );
-}
-
-Node* Mouse::FrontNode( const Node* n ) const {
-    return Neighbor( n, Front() );
-}
-
-Node* Mouse::BackNode( const Node* n ) const {
-    return Neighbor( n, Back() );
-}
-
-void Mouse::AddLeft() {
-    const DirectionEnum dir = Left();
-    const DirectionEnum rev = Right();
-    Node& pos( _map->CurrentPosition() );
-
-    bool is_known = false;
-
-    switch( dir ) {
-        case DIR_NORTH:
-            if( pos.North() != nullptr ) is_known = true;
-            break;
-        case DIR_EAST:
-            if( pos.East() != nullptr ) is_known = true;
-            break;
-        case DIR_SOUTH:
-            if( pos.South() != nullptr ) is_known = true;
-            break;
-        case DIR_WEST:
-            if( pos.West() != nullptr ) is_known = true;
-            break;
-        default:
-            assert( false );
-            break;
-    }
-
-    if( !is_known ) {
-        Node& left( _map->CreateNode() );
-
-        left.Attach( rev, &pos );
-        pos.Attach( dir, &left );
-    }
-}
-
-void Mouse::AddRight() {
-    const DirectionEnum dir = Right();
-    const DirectionEnum rev = Left();
-    Node& pos( _map->CurrentPosition() );
-
-    bool is_known = false;
-
-    switch( dir ) {
-        case DIR_NORTH:
-            if( pos.North() != nullptr ) is_known = true;
-            break;
-        case DIR_EAST:
-            if( pos.East() != nullptr ) is_known = true;
-            break;
-        case DIR_SOUTH:
-            if( pos.South() != nullptr ) is_known = true;
-            break;
-        case DIR_WEST:
-            if( pos.West() != nullptr ) is_known = true;
-            break;
-        default:
-            assert( false );
-            break;
-    }
-
-    if( !is_known ) {
-        Node& right( _map->CreateNode() );
-
-        right.Attach( rev, &pos );
-        pos.Attach( dir, &right );
-    }
-}
-
-void Mouse::AddFront() {
-    const DirectionEnum dir = Front();
-    const DirectionEnum rev = Back();
-    Node& pos( _map->CurrentPosition() );
-
-    bool is_known = false;
-
-    switch( dir ) {
-        case DIR_NORTH:
-            if( pos.North() != nullptr ) is_known = true;
-            break;
-        case DIR_EAST:
-            if( pos.East() != nullptr ) is_known = true;
-            break;
-        case DIR_SOUTH:
-            if( pos.South() != nullptr ) is_known = true;
-            break;
-        case DIR_WEST:
-            if( pos.West() != nullptr ) is_known = true;
-            break;
-        default:
-            assert( false );
-            break;
-    }
-
-    if( !is_known ) {
-        Node& front( _map->CreateNode() );
-        front.Attach( rev, &pos );
-        pos.Attach( dir, &front );
-    }
-}
-
-bool Mouse::Visited( DirectionEnum dir ) const {
-    Node& pos( _map->CurrentPosition() );
-
-    switch( dir ) {
-        case DIR_NORTH:
-            return ( pos.North() == nullptr ) || pos.North()->Visited();
-        case DIR_EAST:
-            return ( pos.East() == nullptr ) || pos.East()->Visited();
-        case DIR_SOUTH:
-            return ( pos.South() == nullptr ) || pos.South()->Visited();
-        case DIR_WEST:
-            return ( pos.West() == nullptr ) || pos.West()->Visited();
-        default:
-            assert( false );
-            return false;
     }
 }
