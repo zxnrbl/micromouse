@@ -1,0 +1,6 @@
+[submodule "mms-cpp"]
+	path = mms-cpp
+	url = https://github.com/mackorone/mms-cpp
+[submodule "mms"]
+	path = mms
+	url = https://github.com/mackorone/mms.git
